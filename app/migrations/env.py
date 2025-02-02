@@ -3,6 +3,10 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 import os
 import sys
+from sqlalchemy.orm import declarative_base
+from app.config import settings
+
+BaseModel = declarative_base()
 
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -20,51 +24,64 @@ fileConfig(config.config_file_name)
 # for 'autogenerate' support
 #from app.models.order import OrderModel  # Ensure 'Base' is correctly imported from your models
 from app.database import BaseModel
-from app.models.vendor import VendorModel
+from app.models.seller import SellerModel
+from app.models.liveShoppingSession import LiveShoppingSession
+from app.models.sellerRatings import SellerRatings
+from app.models.sellerTransactions import SellerTransactions
 
 
 
 target_metadata = BaseModel.metadata
 
+# Dynamically set the database URL based on the environment
+config.set_main_option("sqlalchemy.url", settings.effective_database_url)
 
-# other values from the config, defined by the needs of env.py, can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+# Ensure a valid database URL is set
+if not settings.effective_database_url:
+    raise ValueError("Database URL is not set. Please check your environment variables.")
+print(f"Running migrations on database: {settings.effective_database_url}")
 
+print(f"Effective database URL: {settings.effective_database_url}")
 
-
-
-def run_migrations_offline():
-    """Run migrations in 'offline' mode."""
+def run_migrations_offline() -> None:
+    """
+    Run migrations in 'offline' mode.
+    This configures the context with just a URL and not an Engine.
+    """
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url, target_metadata=target_metadata, literal_binds=True, dialect_opts={"paramstyle": "named"}
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
     )
-
 
     with context.begin_transaction():
         context.run_migrations()
 
 
-
-
-def run_migrations_online():
-    """Run migrations in 'online' mode."""
+def run_migrations_online() -> None:
+    """
+    Run migrations in 'online' mode.
+    This configures the context with an Engine and a live database connection.
+    """
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section), prefix="sqlalchemy.", poolclass=pool.NullPool
+        config.get_section(config.config_ini_section),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
     )
 
-
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
-
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+        )
 
         with context.begin_transaction():
             context.run_migrations()
 
 
-
-
+# Determine whether to run offline or online migrations
 if context.is_offline_mode():
     run_migrations_offline()
 else:

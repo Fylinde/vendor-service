@@ -23,9 +23,14 @@ RUN pip install alembic
 RUN apt-get install -y postgresql-client
 
 
+
 # Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+
+# Install development tools for hot reload
+RUN pip install watchdog[watchmedo]
 
 # Install bcrypt
 RUN pip install bcrypt

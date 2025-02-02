@@ -1,61 +1,25 @@
 from fastapi import FastAPI
-from app.routes import vendor_routes
 from fastapi.middleware.cors import CORSMiddleware
 import logging
-from fastapi.staticfiles import StaticFiles
-import os
-from app.config import settings
-from app.tasks.cleanup import scheduler, cleanup_expired_unverified_users  # Import the scheduler to 
-from apscheduler.schedulers.base import SchedulerAlreadyRunningError
 import pika
-from app.rabbitmq.rabbitmq_consumer import consume_vendor_events
+from app.config import settings
+from contextlib import asynccontextmanager
 from threading import Thread
+from app.tasks.cleanup import scheduler, cleanup_expired_unverified_users
+from app.routes import seller_routes, ratings, seller_transactions, live_shopping_session
+from app.rabbitmq.rabbitmq_consumer import consume_seller_events
+from celery import Celery
 
-#from app.database import create_tables
 
-
-logger = logging.getLogger(__name__)
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("uvicorn.error")
 
-app = FastAPI(
-    title="Vendor Service API", 
-    version="1.0.0",
-    openapi_tags=[
-        {"name": "users", "description": "Operations related to managing users"},
-        {"name": "reviews", "description": "Operations related to managing reviews"},
-        {"name": "orders", "description": "Operations related to managing orders"},
-        {"name": "wishlist", "description": "Operations related to managing wishlists"},
-    ],
-)
-# Include the vendor routes
-app.include_router(vendor_routes.router, prefix="/vendors", tags=["vendors"])
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Starting application...")
 
-
-static_dir = os.path.join(os.path.dirname(__file__), "static")
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
-#@app.on_event("startup")
-#async def startup():
-    ##create_tables()
-    
-origins = [
-    "http://localhost:3000",  # Your frontend application
-]
-
-
-# Configure CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,  # Allow these origins
-    allow_credentials=True,  # Allow cookies and credentials
-    allow_methods=["*"],  # Allow all HTTP methods
-    allow_headers=["*"],  # Allow all headers
-)
-
-@app.on_event("startup")
-async def startup_event():
     try:
         connection = pika.BlockingConnection(
             pika.ConnectionParameters(host=settings.RABBITMQ_HOST)
@@ -64,42 +28,76 @@ async def startup_event():
         logger.info("Successfully connected to RabbitMQ")
     except Exception as e:
         logger.error(f"Failed to connect to RabbitMQ: {e}")
-    
-    # Start the RabbitMQ consumer in a separate thread
-    consumer_thread = Thread(target=consume_vendor_events)
-    consumer_thread.daemon = True  # This will allow the thread to close when the main process ends
+
+    consumer_thread = Thread(target=consume_seller_events)
+    consumer_thread.daemon = True
     consumer_thread.start()
 
-    # Ensure the scheduler is running when the app starts
     try:
         if not scheduler.running:
-            scheduler.add_job(cleanup_expired_unverified_users, 'interval', hours=24)
+            scheduler.add_job(cleanup_expired_unverified_users, "interval", hours=24)
             scheduler.start()
             logger.info("Scheduler started for cleaning up unverified users.")
-        else:
-            logger.info("Scheduler is already running.")
-    except SchedulerAlreadyRunningError:
-        logger.warning("Attempted to start the scheduler, but it was already running.")
     except Exception as e:
-        logger.error(f"Error occurred while starting the scheduler: {e}")
-    
-    for route in app.router.routes:
-        print(route.path, route.name)
-       # Ensure the scheduler is running when the app starts
-    try:
-        # Check if the scheduler is already running before starting
-        if not scheduler.running:
-            scheduler.add_job(cleanup_expired_unverified_users, 'interval', hours=24)
+        logger.error(f"Error starting scheduler: {e}")
 
-            scheduler.start()
-            logger.info("Scheduler started for cleaning up unverified users.")
-        else:
-            logger.info("Scheduler is already running.")
-    except SchedulerAlreadyRunningError:
-        logger.warning("Attempted to start the scheduler, but it was already running.")
-    except Exception as e:
-        logger.error(f"Error occurred while starting the scheduler: {e}")
+    await log_routes(app)
+    yield
+
+    logger.info("Shutting down application...")
+    if scheduler.running:
+        scheduler.shutdown()
+        logger.info("Scheduler stopped.")
+
+async def log_routes(app: FastAPI):
+    logger.info("Available routes:")
+    for route in app.routes:
+        logger.info(f"Path: {route.path}, Name: {route.name}, Methods: {route.methods}")
+
+app = FastAPI(
+    title="Seller Service API",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+# CORS Configuration
+origins = [
+    "http://localhost:3000",  # React frontend
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include API routes
+app.include_router(seller_routes.router, prefix="/sellers", tags=["sellers"])
+app.include_router(ratings.router, prefix="/ratings", tags=["ratings"])
+app.include_router(seller_transactions.router, prefix="/payments/escrow", tags=["payments"])
+app.include_router(live_shopping_session.router, prefix="/live-shopping", tags=["live-shopping"])
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to the User Service!"}
+    return {"message": "Welcome to the Seller Service!"}
+
+celery = Celery(
+    'app',
+    broker='redis://localhost:6379/0',
+    backend='redis://localhost:6379/0'
+)
+
+celery.conf.timezone = 'UTC'
+celery.conf.task_routes = {
+    'tasks.cleanup.run_check_inactive_sellers': {'queue': 'cleanup'},
+}
+
+@app.post("/register_seller")
+async def register_seller(data: dict):
+    return {"message": "Seller registered successfully"}
+
+
+@app.get("/test-cors")
+async def test_cors():
+    return {"message": "CORS is configured correctly!"}

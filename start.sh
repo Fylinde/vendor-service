@@ -8,16 +8,39 @@ chmod +x ./wait-for-it.sh
 echo "wait-for-it.sh script is now executable."
 
 # Wait for PostgreSQL to be ready
-echo "Waiting for PostgreSQL server to be available..."
+echo "Waiting for PostgreSQL server to be available on port 5433..."
 ./wait-for-it.sh db:5433 --timeout=180 --strict
 
 if [ $? -ne 0 ]; then
-  echo "PostgreSQL is not ready. Exiting..."
+  echo "ERROR: PostgreSQL did not become available. Exiting..."
   exit 1
+else
+  echo "SUCCESS: PostgreSQL is ready and reachable on port 5433."
 fi
 
-# Log PostgreSQL readiness
-echo "PostgreSQL is ready."
+# Additional verification to confirm actual connection to the database
+echo "Verifying actual connection to PostgreSQL database..."
+
+# Use a small Python script to attempt the connection
+python3 - <<END
+import psycopg2
+import os
+
+try:
+    connection = psycopg2.connect(
+        dbname=os.getenv("POSTGRES_DB", "vendor_service_db"),
+        user=os.getenv("POSTGRES_USER", "postgres"),
+        password=os.getenv("POSTGRES_PASSWORD", "Sylvian"),
+        host="db",
+        port="5433"
+    )
+    connection.close()
+    print("SUCCESS: Successfully connected to the PostgreSQL database on port 5433.")
+except Exception as e:
+    print("ERROR: Could not connect to the PostgreSQL database on port 5433.")
+    print(f"DETAILS: {e}")
+    exit(1)
+END
 
 # Wait for RabbitMQ to be ready
 echo "Waiting for RabbitMQ server to be available..."
@@ -30,6 +53,9 @@ fi
 
 # Log RabbitMQ readiness
 echo "RabbitMQ is ready."
+
+# Start the FastAPI app
+export CHOKIDAR_USEPOLLING=true
 
 # Set the PYTHONPATH environment variable
 export PYTHONPATH=/app
@@ -90,6 +116,10 @@ fi
 # Log successful migration
 echo "Database migrations completed successfully (if migrations were run)."
 
-# Start the FastAPI application with debug logs
-echo "Starting vendor-service with debug logs..."
-uvicorn app.main:app --host 0.0.0.0 --port 8012 --log-level debug
+# Start the FastAPI application with hot reload and debug logs
+echo "Starting vendor-service with hot reload and debug logs..."
+#watchmedo auto-restart --directory=/app --pattern="*.py" -- uvicorn app.main:app --host 0.0.0.0 --port 8012 --log-level debug
+#watchmedo shell-command --directory=/app --pattern="*.py" --recursive --command='echo "${watch_src_path} was modified"'
+#watchmedo shell-command --directory=/app --pattern="*.py" --command="echo File modified: {watch_src_path}"
+uvicorn app.main:app --host 0.0.0.0 --port 8012 --reload --log-level debug
+

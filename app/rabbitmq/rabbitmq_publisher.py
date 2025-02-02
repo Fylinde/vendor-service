@@ -1,15 +1,15 @@
 from app.rabbitmq.rabbitmq_class import RabbitMQConnection  # Assuming the class is saved in rabbitmq_connection.py
 
 
-def publish_vendor_created_event(vendor_data: dict):
+def publish_seller_created_event(seller_data: dict):
     # Initialize RabbitMQ connection for publishing
-    rabbitmq = RabbitMQConnection(exchange_name="vendor_events", exchange_type="fanout")
+    rabbitmq = RabbitMQConnection(exchange_name="seller_events", exchange_type="fanout")
 
-    # Publish vendor created event
+    # Publish seller created event
     try:
         message = {
-            "event": "vendor_created",
-            "data": vendor_data
+            "event": "seller_created",
+            "data": seller_data
         }
         rabbitmq.publish_message(message=message)
     finally:

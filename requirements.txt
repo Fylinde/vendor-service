@@ -24,3 +24,11 @@ werkzeug
 apscheduler
 bcrypt
 password-validator
+aiohttp
+pytest
+httpx
+celery 
+watchdog 
+uvicorn
+fastapi[all]
+tenacity
