@@ -10,14 +10,7 @@ def create_seller(db: Session, seller_data: SellerCreate, is_verified: bool = Fa
     """
     Creates a seller instance, handling hashed passwords and default values.
     
-    Parameters:
-    - db (Session): Database session instance.
-    - seller_data (SellerCreate): Seller creation schema containing necessary seller details.
-    - is_verified (bool): Determines if the seller is initially verified.
-    - is_approved (bool): Determines if the seller is initially approved.
-    
-    Returns:
-    - SellerModel: The newly created seller instance.
+    Ensures that the seller starts at Step 1 in the registration process.
     """
     db_seller = SellerModel(
         full_name=seller_data.full_name,
@@ -29,12 +22,14 @@ def create_seller(db: Session, seller_data: SellerCreate, is_verified: bool = Fa
         is_email_verified=is_verified,
         is_phone_verified=is_verified,
         is_approved=is_approved,
+        current_step="account_creation"  # ✅ Ensure seller starts at Step 1
     )
 
     db.add(db_seller)
     db.commit()
     db.refresh(db_seller)
     return db_seller
+
 
 
 

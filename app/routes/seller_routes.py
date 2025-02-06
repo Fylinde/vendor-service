@@ -132,13 +132,26 @@ async def fetch_seller_profile():
 async def modify_seller_profile(seller: SellerBase):
     return await update_seller_details(seller.dict())
 
-@router.get("/{seller_id}/current-step", response_model=CurrentStepResponse)
-def fetch_current_step(seller_id: int, db: Session = Depends(get_db)):
+@router.get("/{sellerId}/current-step", response_model=CurrentStepResponse)
+def fetch_current_step(sellerId: int, db: Session = Depends(get_db)):
     """Fetch the current registration step for a seller."""
-    current_step = get_seller_current_step(db, seller_id)
+    logging.info(f"📡 Fetching current step for seller ID {sellerId}...")
+
+    current_step = get_seller_current_step(db, sellerId)
+    
     if current_step is None:
+        logging.error(f"🚨 Seller {sellerId} not found in database!")
         raise HTTPException(status_code=404, detail="Seller not found")
-    return {"seller_id": seller_id, "current_step": current_step, "registration_data": None}
+
+    logging.info(f"✅ Seller {sellerId} is currently at step: {current_step}")
+
+    return {
+        "sellerId": sellerId,  # ✅ Correct key
+        "current_step": current_step,
+        "registration_data": None
+    }
+
+
 
 @router.put("/{seller_id}/current-step", response_model=CurrentStepResponse)
 def update_step(request: CurrentStepRequest, db: Session = Depends(get_db)):

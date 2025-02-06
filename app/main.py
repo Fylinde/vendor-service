@@ -50,9 +50,14 @@ async def lifespan(app: FastAPI):
         logger.info("Scheduler stopped.")
 
 async def log_routes(app: FastAPI):
-    logger.info("Available routes:")
+    """Logs all registered routes safely (handles WebSocket routes)"""
+    logger.info("Available Routes:")
     for route in app.routes:
-        logger.info(f"Path: {route.path}, Name: {route.name}, Methods: {route.methods}")
+        if hasattr(route, "methods"):  # ✅ Only log methods for HTTP routes
+            logger.info(f"Path: {route.path}, Name: {route.name}, Methods: {route.methods}")
+        else:  # ✅ Handle WebSocket routes separately
+            logger.info(f"Path: {route.path}, Name: {route.name}, WebSocket Route")
+
 
 app = FastAPI(
     title="Seller Service API",

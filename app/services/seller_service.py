@@ -105,45 +105,49 @@ def send_verification_payload(payload):
 def register_seller(db: Session, seller_data: SellerCreate):
     """
     Registers an unverified seller, creates a verification payload, and sends an API request to generate a verification code.
-    
-    Parameters:
-    - db (Session): Database session instance.
-    - seller_data (SellerCreate): Seller creation schema containing necessary seller details.
-    
-    Returns:
-    - dict: Response containing seller details and verification status.
     """
-    logging.info("Starting seller registration process.")
-    
+    logger.info("📢 Starting seller registration process.")
+
+    # ✅ Log received seller data
+    logger.info("📩 Received seller registration request: %s", seller_data.dict())
+
     try:
-        # Step 1: Create a new seller instance using create_seller()
+        # ✅ Check if email already exists
+        existing_seller = db.query(SellerModel).filter(SellerModel.email == seller_data.email).first()
+        if existing_seller:
+            logger.error(f"❌ Email {seller_data.email} is already registered.")
+            raise HTTPException(status_code=400, detail="Email is already registered. Please use a different email.")
+
+        # ✅ Create the seller using the helper function
         seller = create_seller(db, seller_data, is_verified=False, is_approved=False)
-        logging.info(f"Seller created successfully with ID: {seller.id}")
-        
-        # Step 2: Prepare the verification payload
+        logger.info(f"✅ Seller created successfully with ID: {seller.id}")
+
+        # ✅ Prepare verification payload
         verification_payload = {
-            "contact": seller.email or seller.phoneNumber,
+            "contact": seller.email if seller.email else seller.phoneNumber,
             "is_email": bool(seller.email),
             "seller_type": seller.seller_type,
             "sellerId": str(seller.id),
         }
-        logging.info("Verification payload prepared: %s", verification_payload)
-        
-        # Step 3: Send request to AUTH_SERVICE to generate verification code
+        logger.info("📦 Verification payload prepared: %s", verification_payload)
+
+        # ✅ Send request to AUTH_SERVICE for verification code
         verification_url = f"{AUTH_SERVICE_URL}/generate-verification-code"
-        logging.info(f"Sending verification request to: {verification_url}")
-        
+        logger.info(f"🔗 Sending verification request to: {verification_url}")
+
         try:
             response = requests.post(verification_url, json=verification_payload)
             response.raise_for_status()  # Raises HTTPError for bad responses
             verification_data = response.json()
-            logging.info("Verification code received successfully.")
+            logger.info("✅ Verification code received successfully: %s", verification_data)
+
         except requests.exceptions.RequestException as e:
-            logging.error(f"Failed to send verification request: {str(e)}")
-            return {"error": "Failed to generate verification code", "details": str(e)}
-        
-        # Step 4: Construct final response
-        result = {
+            logger.error(f"❌ Failed to send verification request: {str(e)}")
+            db.rollback()  # Rollback transaction on failure
+            raise HTTPException(status_code=500, detail="Failed to generate verification code")
+
+        # ✅ Return successful response
+        return {
             "sellerId": str(seller.id),
             "full_name": seller.full_name,
             "email": seller.email,
@@ -155,14 +159,16 @@ def register_seller(db: Session, seller_data: SellerCreate):
             "is_email_verified": seller.is_email_verified,
             "is_phone_verified": seller.is_phone_verified,
         }
-        logging.info("Seller Verification Data Is Successfully Sent.")
-        
-        return result
-    
+
+    except HTTPException as http_err:
+        logger.error(f"🚨 HTTP Error: {http_err.detail}")
+        db.rollback()
+        raise http_err
+
     except Exception as e:
-        logging.error(f"An error occurred during seller registration: {str(e)}")
-        db.rollback()  # Rollback in case of failure
-        return {"error": "Seller registration failed", "details": str(e)}
+        logger.error(f"❌ Unexpected error during seller registration: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Seller registration failed")
 
 
 async def get_seller_rating(sellerId: str):
